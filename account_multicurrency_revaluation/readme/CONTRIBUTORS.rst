@@ -11,7 +11,7 @@
 * Vincent Renaville
 * Yannick Vaucher
 * Akim Juillerat
-* `Tecnativa <https://www.tecnativa.com>`_:
-
-  * Pedro M. Baeza
-  * Ernesto Tejeda
+* Pedro M. Baeza
+* Ernesto Tejeda
+* `CorporateHub <https://corporatehub.eu/>`__
+* Alexey Pelykh <alexey.pelykh@corphub.eu>
