@@ -1,4 +1,5 @@
 # Copyright 2012-2018 Camptocamp SA
+# Copyright 2020 CorporateHub (https://corporatehub.eu)
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 
@@ -11,9 +12,9 @@ class UnrealizedCurrencyReportPrinter(models.TransientModel):
     _description = "Unrealized Currency Report Printer"
 
     account_ids = fields.Many2many(
-        "account.account",
-        string="Accounts",
-        domain="[('currency_revaluation', '=', True)]",
+        'account.account',
+        string='Accounts',
+        domain=[('currency_revaluation', '=', True)],
         default=lambda self: self._default_account_ids(),
     )
 
