@@ -322,13 +322,6 @@ class WizardCurrencyRevaluation(models.TransientModel):
                     )
                     created_ids.extend(new_ids)
 
-        # In case revaluation date is before today, it's safe to run reversing
-        # w/o waiting tomorrow, since otherwise it would cause confusion when
-        # revaluating historical entries for multiple years within one day.
-        if self.journal_id.company_id.reversable_revaluations \
-                and self.revaluation_date < fields.Date.context_today(self):
-            self.env['account.move']._run_reverses_entries()
-
         if created_ids:
             return {
                 'domain': [('id', 'in', created_ids)],
