@@ -28,6 +28,21 @@ class TestCurrencyRevaluation(common.SavepointCase):
         cls.reval_journal = cls.env.ref(
             'account_multicurrency_revaluation.reval_journal'
         )
+        cls.receivable_acc = cls.env["account.account"].create(
+            {
+                "name": "Account Receivable",
+                "code": "accrec",
+                "user_type_id": cls.env.ref("account.data_account_type_receivable").id,
+                "currency_revaluation": True,
+                "reconcile": True,
+                "company_id": cls.company.id,
+            }
+        )
+        payable_acc = cls.env.ref("account_multicurrency_revaluation.demo_acc_payable")
+        cls.partner = cls.env.ref("base.res_partner_3")
+        cls.partner.company_id = cls.company.id
+        cls.partner.property_account_payable_id = payable_acc.id
+        cls.partner.property_account_receivable_id = cls.receivable_acc.id
 
     def test_defaults(self):
         self.env['res.config.settings'].create({
@@ -80,18 +95,16 @@ class TestCurrencyRevaluation(common.SavepointCase):
             'reversable_revaluations': False,
         }
         self.company.write(values)
-        receivable_acc = self.env.ref(
-            'account_multicurrency_revaluation.demo_acc_receivable')
-        receivable_acc.write({'reconcile': True})
+        receivable_acc = self.receivable_acc
 
         invoice1 = self.create_invoice(
             self.today - timedelta(days=30), usd_currency, 1.0, 100.00
         )
-        invoice1.action_invoice_open()
+        invoice1.action_post()
         invoice2 = self.create_invoice(
             self.today - timedelta(days=15), usd_currency, 1.0, 100.00
         )
-        invoice2.action_invoice_open()
+        invoice2.action_post()
 
         reval_move_lines = self.env['account.move.line'].search([
             ('account_id', '=', receivable_acc.id)])
@@ -170,13 +183,12 @@ class TestCurrencyRevaluation(common.SavepointCase):
             'currency_id': usd_currency.id,
         }
         self.company.write(values)
-        receivable_acc = self.env.ref(
-            'account_multicurrency_revaluation.demo_acc_receivable')
+        receivable_acc = self.receivable_acc
 
         invoice = self.create_invoice(
             self.today - timedelta(days=89), eur_currency, 5.0, 1000.00
         )
-        invoice.action_invoice_open()
+        invoice.action_post()
         result = self.wizard_execute(self.today - timedelta(days=70))
         self.assertEqual(result.get('name'), "Created revaluation lines")
         reval_move_lines = self.env['account.move.line'].search([
@@ -302,11 +314,11 @@ class TestCurrencyRevaluation(common.SavepointCase):
             1.0,
             25.0
         )
-        invoice.action_invoice_open()
+        invoice.action_post()
         invoice_move_line = next(
             move_line
-            for move_line in invoice.move_id.line_ids
-            if move_line.account_id == invoice.account_id
+            for move_line in invoice.line_ids
+            if move_line.account_id.reconcile
         )
         bank_stmt_line_2.process_reconciliation(counterpart_aml_dicts=[{
             'move_line': invoice_move_line,
@@ -430,11 +442,11 @@ class TestCurrencyRevaluation(common.SavepointCase):
             1.0,
             25.0
         )
-        invoice.action_invoice_open()
+        invoice.action_post()
         invoice_move_line = next(
             move_line
-            for move_line in invoice.move_id.line_ids
-            if move_line.account_id == invoice.account_id
+            for move_line in invoice.line_ids
+            if move_line.account_id.reconcile
         )
         bank_stmt_line_2.process_reconciliation(counterpart_aml_dicts=[{
             'move_line': invoice_move_line,
@@ -488,126 +500,6 @@ class TestCurrencyRevaluation(common.SavepointCase):
                 ('account_id', '=', bank_account.id),
             ])
         )
-
-    def test_revaluation_reverse(self):
-        self.delete_journal_data()
-        usd_currency = self.env.ref('base.USD')
-        eur_currency = self.env.ref('base.EUR')
-        rates = {
-            (self.today - timedelta(days=90)): 0.75,
-            (self.today - timedelta(days=80)): 1.00,
-            (self.today - timedelta(days=70)): 1.25,
-        }
-        self.create_rates(rates, eur_currency)
-        acc_reval_loss = self.env.ref('account_multicurrency_revaluation.'
-                                      'acc_reval_loss')
-        acc_reval_gain = self.env.ref('account_multicurrency_revaluation.'
-                                      'acc_reval_gain')
-        values = {
-            'revaluation_loss_account_id': acc_reval_loss.id,
-            'revaluation_gain_account_id': acc_reval_gain.id,
-            'currency_reval_journal_id': self.reval_journal.id,
-            'reversable_revaluations': True,
-            'currency_id': usd_currency.id,
-        }
-        self.company.write(values)
-
-        eur_bank = self.env['account.journal'].create({
-            'name': 'EUR Bank',
-            'type': 'bank',
-            'code': 'EURBK',
-            'currency_id': eur_currency.id,
-        })
-        eur_bank.default_debit_account_id.currency_revaluation = True
-        bank_account = eur_bank.default_debit_account_id
-
-        liability_account = self.env['account.account'].create({
-            'name': 'Liability',
-            'code': 'L',
-            'user_type_id': self.env.ref(
-                'account.data_account_type_current_liabilities'
-            ).id,
-            'company_id': self.company.id,
-        })
-
-        bank_stmt = self.env['account.bank.statement'].create({
-            'journal_id': eur_bank.id,
-            'date': self.today - timedelta(days=60),
-            'name': 'Statement',
-        })
-
-        bank_stmt_line_1 = self.env['account.bank.statement.line'].create({
-            'name': 'Incoming 100 EUR',
-            'statement_id': bank_stmt.id,
-            'amount': 100.0,
-            'date': self.today - timedelta(days=90),
-        })
-        bank_stmt_line_1.process_reconciliation(new_aml_dicts=[{
-            'credit': 100.0,
-            'debit': 0.0,
-            'name': 'Incoming 100 EUR',
-            'account_id': liability_account.id,
-        }])
-
-        bank_stmt_line_2 = self.env['account.bank.statement.line'].create({
-            'name': 'Outgoing 25 EUR',
-            'statement_id': bank_stmt.id,
-            'amount': -25.0,
-            'date': self.today - timedelta(days=79),
-        })
-        invoice = self.create_invoice(
-            self.today - timedelta(days=79),
-            eur_currency,
-            1.0,
-            25.0
-        )
-        invoice.action_invoice_open()
-        invoice_move_line = next(
-            move_line
-            for move_line in invoice.move_id.line_ids
-            if move_line.account_id == invoice.account_id
-        )
-        bank_stmt_line_2.process_reconciliation(counterpart_aml_dicts=[{
-            'move_line': invoice_move_line,
-            'credit': 0,
-            'debit': 25,
-            'name': invoice_move_line.name,
-        }])
-
-        bank_stmt_line_3 = self.env['account.bank.statement.line'].create({
-            'name': 'Incoming 50 EUR',
-            'statement_id': bank_stmt.id,
-            'amount': 50.0,
-            'date': self.today - timedelta(days=69),
-        })
-        bank_stmt_line_3.process_reconciliation(new_aml_dicts=[{
-            'credit': 50.0,
-            'debit': 0.0,
-            'name': 'Incoming 50 EUR',
-            'account_id': liability_account.id,
-        }])
-
-        bank_account_lines = self.env['account.move.line'].search([
-            ('account_id', '=', bank_account.id),
-        ])
-        self.assertEqual(len(bank_account_lines), 3)
-        self.assertEqual(sum(bank_account_lines.mapped('debit')), 173.33)
-        self.assertEqual(sum(bank_account_lines.mapped('credit')), 25.0)
-        self.assertEqual(
-            sum(bank_account_lines.mapped('amount_currency')),
-            125.0
-        )
-
-        result = self.wizard_execute(self.today - timedelta(days=60))
-        self.assertEqual(result.get('name'), "Created revaluation lines")
-
-        revaluation_lines = self.env['account.move.line'].search([
-            ('account_id', '=', bank_account.id),
-        ]) - bank_account_lines
-        self.assertEqual(len(revaluation_lines), 2)
-        self.assertEqual(sum(revaluation_lines.mapped('debit')), 48.33)
-        self.assertEqual(sum(revaluation_lines.mapped('credit')), 48.33)
-        self.assertEqual(sum(revaluation_lines.mapped('amount_currency')), 0.0)
 
     def create_rates(self, rates_by_date, currency, purge=True):
         unlink_domain = []
