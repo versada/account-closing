@@ -285,7 +285,9 @@ class WizardCurrencyRevaluation(models.TransientModel):
 
             for partner_id, by_partner in by_account.items():
                 for currency_id, lines in by_partner.items():
-                    currency = Currency.browse(currency_id)
+                    currency = Currency.with_context(date=self.revaluation_date).browse(
+                        currency_id
+                    )
 
                     diff_balances = self._compute_unrealized_currency_gl(
                         currency,
@@ -301,7 +303,9 @@ class WizardCurrencyRevaluation(models.TransientModel):
 
             for partner_id, by_partner in by_account.items():
                 for currency_id, lines in by_partner.items():
-                    currency = Currency.browse(currency_id)
+                    currency = Currency.with_context(date=self.revaluation_date).browse(
+                        currency_id
+                    )
 
                     adj_balance = lines.get('unrealized_gain_loss', 0.0)
                     if currency.is_zero(adj_balance):
