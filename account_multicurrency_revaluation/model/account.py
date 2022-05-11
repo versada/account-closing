@@ -76,20 +76,6 @@ WITH amount AS (
     FROM account_move_line aml
     INNER JOIN account_account acc ON aml.account_id = acc.id
     INNER JOIN account_account_type aat ON acc.user_type_id = aat.id
-    LEFT JOIN account_partial_reconcile aprc
-        ON (aml.id = aprc.credit_move_id)
-    LEFT JOIN account_move_line amlcf
-        ON (
-            aprc.debit_move_id = amlcf.id
-            AND amlcf.date <= %s
-        )
-    LEFT JOIN account_partial_reconcile aprd
-        ON (aml.id = aprd.debit_move_id)
-    LEFT JOIN account_move_line amldf
-        ON (
-            aprd.credit_move_id = amldf.id
-            AND amldf.date <= %s
-        )
     WHERE
         aml.account_id IN %s
         AND aml.date <= %s
@@ -98,9 +84,6 @@ WITH amount AS (
     GROUP BY
         aat.type,
         aml.id
-    HAVING
-        aml.full_reconcile_id IS NULL
-        OR (MAX(amldf.id) IS NULL AND MAX(amlcf.id) IS NULL)
 )
 SELECT
     account_id as id,
@@ -113,8 +96,6 @@ GROUP BY account_id, currency_id, partner_id
         """
 
         params = [
-            revaluation_date,
-            revaluation_date,
             tuple(self.ids),
             revaluation_date,
             *where_clause_params,
