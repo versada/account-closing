@@ -15,7 +15,11 @@ class WizardCurrencyRevaluation(models.TransientModel):
 
     @api.model
     def _get_default_revaluation_date(self):
-        return fields.Date.today()
+        return fields.Date.today().replace(day=1) - timedelta(days=1)
+
+    @api.model
+    def _get_default_reversal_date(self):
+        return fields.Date.today().replace(day=1)
 
     @api.model
     def _get_default_journal_id(self):
@@ -29,6 +33,10 @@ class WizardCurrencyRevaluation(models.TransientModel):
         string="Revaluation Date",
         required=True,
         default=lambda self: self._get_default_revaluation_date(),
+    )
+    reversal_date = fields.Date(
+        string="Reversal Date",
+        default=lambda self: self._get_default_reversal_date(),
     )
     journal_id = fields.Many2one(
         comodel_name="account.journal",
@@ -236,6 +244,26 @@ class WizardCurrencyRevaluation(models.TransientModel):
             )
         )
 
+    def _reverse_revaluation_entries(self, account_move_line_ids):
+        moves = (
+            self.env["account.move.line"]
+            .browse(account_move_line_ids)
+            .mapped("move_id")
+        )
+        wizard = (
+            self.env["account.move.reversal"]
+            .with_context(active_model="account.move", active_ids=moves.ids)
+            .new({"date": self.reversal_date})
+        )
+        action = wizard.reverse_moves()
+        new_moves = self.env["account.move"].browse()
+        if "domain" in action:
+            new_moves = self.env["account.move"].search(action["domain"])
+        elif "res_id" in action:
+            new_moves = self.env["account.move"].browse(action["res_id"])
+
+        return account_move_line_ids + new_moves.mapped('line_ids').ids
+
     def revaluate_currency(self):
         """
         Compute unrealized currency gain and loss and add entries to
@@ -327,6 +355,8 @@ class WizardCurrencyRevaluation(models.TransientModel):
                     created_ids.extend(new_ids)
 
         if created_ids:
+            if self.reversal_date:
+                created_ids = self._reverse_revaluation_entries(created_ids)
             return {
                 "domain": [("id", "in", created_ids)],
                 "name": _("Created revaluation lines"),
