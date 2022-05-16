@@ -56,7 +56,7 @@ class WizardCurrencyRevaluation(models.TransientModel):
         default=lambda self: self._get_default_label(),
     )
 
-    def _create_move_and_lines(
+    def _get_account_move_data(
         self,
         amount,
         debit_account_id,
@@ -104,9 +104,7 @@ class WizardCurrencyRevaluation(models.TransientModel):
         if analytic_credit_acc_id:
             credit_line.update({"analytic_account_id": analytic_credit_acc_id})
         base_move["line_ids"] = [(0, 0, debit_line), (0, 0, credit_line)]
-        created_move = self.env["account.move"].create(base_move)
-        created_move.post()
-        return [x.id for x in created_move.line_ids]
+        return base_move
 
     def _compute_unrealized_currency_gl(self, currency, balances):
         """
@@ -159,11 +157,12 @@ class WizardCurrencyRevaluation(models.TransientModel):
             partner_id = False
         company = form.journal_id.company_id or self.env.user.company_id
         created_ids = []
+        moves_to_create = []
 
         amount_vs_zero = currency.compare_amounts(amount, 0.0)
         if amount_vs_zero == 1:
             if company.revaluation_gain_account_id:
-                line_ids = self._create_move_and_lines(
+                moves_to_create.append(self._get_account_move_data(
                     amount,
                     account.id,
                     company.revaluation_gain_account_id.id,
@@ -173,14 +172,13 @@ class WizardCurrencyRevaluation(models.TransientModel):
                     partner_id,
                     currency.id,
                     analytic_credit_acc_id=(company.revaluation_analytic_account_id.id),
-                )
-                created_ids.extend(line_ids)
+                ))
 
             if (
                 company.provision_bs_gain_account_id
                 and company.provision_pl_gain_account_id
             ):
-                line_ids = self._create_move_and_lines(
+                moves_to_create.append(self._get_account_move_data(
                     amount,
                     company.provision_bs_gain_account_id.id,
                     company.provision_pl_gain_account_id.id,
@@ -192,11 +190,10 @@ class WizardCurrencyRevaluation(models.TransientModel):
                     analytic_credit_acc_id=(
                         company.provision_pl_analytic_account_id.id
                     ),
-                )
-            created_ids.extend(line_ids)
+                ))
         elif amount_vs_zero == -1:
             if company.revaluation_loss_account_id:
-                line_ids = self._create_move_and_lines(
+                moves_to_create.append(self._get_account_move_data(
                     -amount,
                     company.revaluation_loss_account_id.id,
                     account.id,
@@ -206,14 +203,13 @@ class WizardCurrencyRevaluation(models.TransientModel):
                     partner_id,
                     currency.id,
                     analytic_debit_acc_id=(company.revaluation_analytic_account_id.id),
-                )
-                created_ids.extend(line_ids)
+                ))
 
             if (
                 company.provision_bs_loss_account_id
                 and company.provision_pl_loss_account_id
             ):
-                line_ids = self._create_move_and_lines(
+                moves_to_create.append(self._get_account_move_data(
                     -amount,
                     company.provision_pl_loss_account_id.id,
                     company.provision_bs_loss_account_id.id,
@@ -223,10 +219,11 @@ class WizardCurrencyRevaluation(models.TransientModel):
                     partner_id,
                     currency.id,
                     analytic_debit_acc_id=(company.provision_pl_analytic_account_id.id),
-                )
-                created_ids.extend(line_ids)
+                ))
 
-        return created_ids
+        created_moves = self.env["account.move"].create(moves_to_create)
+        created_moves.post()
+        return [x.id for x in created_moves.line_ids]
 
     def _validate_company_revaluation_configuration(self, company):
         return (
