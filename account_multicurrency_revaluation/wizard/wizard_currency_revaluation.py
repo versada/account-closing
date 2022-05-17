@@ -221,9 +221,7 @@ class WizardCurrencyRevaluation(models.TransientModel):
                     analytic_debit_acc_id=(company.provision_pl_analytic_account_id.id),
                 ))
 
-        created_moves = self.env["account.move"].create(moves_to_create)
-        created_moves.post()
-        return [x.id for x in created_moves.line_ids]
+        return moves_to_create
 
     def _validate_company_revaluation_configuration(self, company):
         return (
@@ -328,7 +326,7 @@ class WizardCurrencyRevaluation(models.TransientModel):
                     )
 
         # Create entries only after all computation have been done
-        created_ids = []
+        moves_to_create = []
         for account_id, by_account in revaluations.items():
             account = Account.browse(account_id)
 
@@ -346,10 +344,13 @@ class WizardCurrencyRevaluation(models.TransientModel):
                         self.label, account, currency, rate
                     )
 
-                    new_ids = self._write_adjust_balance(
+                    moves_to_create.extend(self._write_adjust_balance(
                         account, currency, partner_id, adj_balance, label, self, lines
-                    )
-                    created_ids.extend(new_ids)
+                    ))
+
+        created_moves = self.env["account.move"].create(moves_to_create)
+        created_moves.post()
+        created_ids = [x.id for x in created_moves.line_ids]
 
         if created_ids:
             if self.reversal_date:
